@@ -150,7 +150,8 @@ def read_ibm(gltf, binary):
     return raw.transpose(0, 2, 1)
 
 def fk_global_transforms(gltf, skin_joints, node_to_sj,
-                          mot_rot, mot_joint, mot_trans, ref_mat, ref_mat_inv):
+                          mot_rot, mot_joint, mot_trans, ref_mat, ref_mat_inv,
+                          bone_scale=1.0):
     all_q    = np.vstack([mot_rot[None], mot_joint])
     motion_R = np.stack([_wxyz_to_R(all_q[i]) for i in range(65)])
     local_R  = np.einsum('nij,njk,nkl->nil', ref_mat_inv, motion_R, ref_mat)
@@ -178,7 +179,7 @@ def fk_global_transforms(gltf, skin_joints, node_to_sj,
             visited.add(ci)
             sj_c    = node_to_sj[ci]
             rest_t  = np.array(gltf.nodes[ci].translation or [0.0, 0.0, 0.0], dtype=np.float64)
-            global_T[sj_c] = global_T[sj_p] + global_R[sj_p] @ rest_t
+            global_T[sj_c] = global_T[sj_p] + global_R[sj_p] @ (rest_t * bone_scale)
             nd_c    = gltf.nodes[ci]
             rest_R_c = Rotation.from_quat(nd_c.rotation).as_matrix() if nd_c.rotation else np.eye(3)
             mi      = sj_to_mi.get(sj_c)
@@ -428,6 +429,14 @@ def load_char_primitives(glb_path):
     skin_joints, node_to_sj, _ = build_skeleton(gltf)
     ibm = read_ibm(gltf, binary)
 
+    # Detect cm-unit models (mixamo exports): IBM root Y >> 1m means skeleton
+    # was exported in centimeters. Normalize IBM translations and will scale
+    # verts below so that LBS output is in meters.
+    _cm_model = abs(ibm[0, 1, 3]) > 5.0
+    if _cm_model:
+        ibm = ibm.copy()
+        ibm[:, :3, 3] *= 0.01  # scale IBM translation cm → m
+
     primitives = []
 
     for ni, nd in enumerate(gltf.nodes):
@@ -440,6 +449,8 @@ def load_char_primitives(glb_path):
                 continue
 
             verts   = read_acc(gltf, binary, attrs.POSITION).astype(np.float32)
+            if _cm_model:
+                verts = verts * 0.01  # cm → m
             joints  = read_acc(gltf, binary, attrs.JOINTS_0).astype(np.uint8)
             weights = read_acc(gltf, binary, attrs.WEIGHTS_0).astype(np.float32)
             uvs     = (read_acc(gltf, binary, attrs.TEXCOORD_0).astype(np.float32)
