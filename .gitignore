@@ -143,3 +143,10 @@ logs/
 vis/
 tmp/
 *.pth
+
+# Generated data / outputs
+Data/ViCo_animated/
+Data/HAPS2_0/**/*.glb
+Data/HAPS2_0/**/*.object_config.json
+Data/HA-R2R/
+Data/Multi-Human-Annotations/
